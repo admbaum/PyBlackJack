@@ -3,6 +3,7 @@
 # blackjack.py
 
 import cardgame
+import time
 
 
 class BlackjackCard(cardgame.Card):
@@ -19,7 +20,7 @@ class BlackjackPlayer(cardgame.Player):
     def getBestHand(self):
         handVal = sum([i.getVal() for i in self._cards])
         
-        if ( handVal <= 11 ) and self.hasAce:
+        if ( handVal <= 11 ) and self.hasAce():
             return handVal + 10
         else:
             return handVal
@@ -28,6 +29,11 @@ class BlackjackPlayer(cardgame.Player):
         for i in self._cards:
             if i.val[0] == 'A':
                 return True
+        return False
+        
+    def hasNatural(self):
+        if (self.getBestHand() == 21) and (len(self._cards) == 2):
+            return True
         return False
     
     def busted(self):
@@ -38,12 +44,15 @@ class BlackjackPlayer(cardgame.Player):
     
     def getStandardBet(self, currency):
         betval = raw_input("You have {}. How much would you like to bet?: "\
-                           .format(self._bankroll.getPrintable(currency)))
+            .format(self.fundsStr(currency)))
         try:
             betval = int(betval)
         except:
             return self.getStandardBet(currency)
-
+            
+        if betval == 0:
+            return None
+        
         try:
             bet = self.makeBet(currency, betval, 'standard')
         except cardgame.GameError as e:
@@ -63,18 +72,29 @@ class BlackjackPlayer(cardgame.Player):
 class BlackjackDealer(BlackjackPlayer):
     def getStandardBet(self, currency):
         return None
-        
+    
     def takeHit(self):
+        time.sleep(.5)
         if self.getBestHand() < 17:
+            print("Dealer took a hit.")
             return True
         else:
+            print("Dealer stays.")
             return False
-            
+    
     def payout(self, currency, amount):
-        if self.bankroll:
-            pass
+        # if dealer has a bankroll then funds come from there. this can raise
+        # an error if the dealer overdraws funds
+        # otherwise funds are 
+        if self._bank:
+            pay = self.removeFunds(currency, amount)
+            return (currency, pay)
         else:
-            pass
+            return (currency, amount)
+    
+    def addFunds(self, currency, amount):
+        if self._bank:
+            super(BlackjackPlayer, self).addFunds(currency, amount)
 
 
 class BlackjackGame(cardgame.Game):
@@ -90,20 +110,23 @@ class BlackjackGame(cardgame.Game):
     def __init__(self):
         deck = cardgame.Deck(STANDARDDECK)
         deck.shuffleCards()
-        dealer = self.makeDealer()
+        self._dealer = self.makeDealer()
         self._stakes = self.STAKES[makeChoice("What are you betting with?", 
-                                         self.STAKES.keys())]
-        super(BlackjackGame, self).__init__([dealer], deck)
+            self.STAKES.keys())]
+        super(BlackjackGame, self).__init__([self._dealer], deck)
     
     def makeDealer(self):
-        name = "Dealer"
-        return BlackjackDealer(bankroll=None, name=name)
+        dealer = BlackjackDealer(name="Dealer")
+        dealer._bank = None
+        return dealer
     
     def makePlayer(self):
         name = raw_input("What's your name?: ")
-        bank = cardgame.Bankroll(currency=self._stakes[0], amount=self._stakes[1])
-        print "You have a starting bankroll of {}".format(bank.getPrintable(self._stakes[0]))
-        return BlackjackPlayer(bankroll=bank, name=name)
+        player = BlackjackPlayer(name=name)
+        player.addFunds(currency=self._stakes[0], amount=self._stakes[1])
+        print("You have a starting bankroll of {}".format(
+            player.fundsStr(self._stakes[0])))
+        return player
     
     def dealToEveryone(self):
         for player in self._players:
@@ -115,47 +138,146 @@ class BlackjackGame(cardgame.Game):
     def takeStartingBets(self):
         for player in self._players:
             bet = player.getStandardBet(self._stakes[0])
-
             self._pot[player] = bet
         
         for player in self._players:
             try:
-                print "Player {} made a {}".format(player.who(), 
-                        self._pot[player].getPrintable())
+                print("Player {} made a {}".format(player.who(), 
+                    self._pot[player].getPrintable()))
             except:
-                print "Player {} made no bets.".format(player.who())
-        
+                print("Player {} made no bets.".format(player.who()))
+    
     def showHands(self):
         for player in self._players:
             if player == self._activePlayer:
-                print "Your hand: {}".format(player.showCards(omnipotent=True))
+                print("Your hand: {}".format(player.showCards(omnipotent=True)))
             else:
-                print "{}'s hand: {}".format(player.who(), player.showCards())
-                
+                print("{}'s hand: {}".format(player.who(), player.showCards()))
+    
     def dealOptions(self):
         for player in self._players:
-            print "{}'s turn. Your hand: {}".format(player.who(), player.showCards(omnipotent=True))
+            # skip players that did not bet
+            if player not in self._pot:
+                continue
+            print "{}'s turn. Hand: {}".format(
+                    player.who(), player.showCards(omnipotent=True))
+            # you can offer surrender here
+            # self.payPlayer(player, 'surrender')
             while (not player.busted()) and player.takeHit():
                 self.dealCardToPlayer(player, show=True)
-                print "{}'s hand: {}".format(player.who(), player.showCards(omnipotent=True))
+                print "{}'s hand: {}".format(
+                        player.who(), player.showCards(omnipotent=True))
                 if player.busted():
                     print "{} busted!".format(player.who())
+            time.sleep(.5)
     
     def calcWinners(self):
+        if self._dealer.busted():
+            dealer_best = 0
+        else:
+            dealer_best = self._dealer.getBestHand()
         for player in self._players:
-            pass
+            if player == self._dealer:
+                continue
+            elif player.busted():
+                self.payPlayer(player, 'loss')
+                continue
+            if player.hasNatural():
+                if self._dealer.hasNatural():
+                    self.payPlayer(player, 'push')
+                else:
+                    self.payPlayer(player, 'natural')
+            elif player.getBestHand() > dealer_best:
+                self.payPlayer(player, 'win')
+            elif player.getBestHand() == dealer_best:
+                self.payPlayer(player, 'push')
+            else:
+                self.payPlayer(player, 'loss')
+    
+    def payPlayer(self, player, win_type):
+        bet = self._pot[player]
+        # no payout if no bet was made
+        if not bet:
+            return
+        # winnings for a standard bet with no insurance/doubles/side bets/etc.
+        if bet.kind == 'standard':
+            if win_type == 'loss':
+                print("You lost this round {}.".format(player.who()))
+                self._dealer.addFunds(bet.currency, bet.amount)
+                return
+            elif win_type == 'push':
+                print("No winners this round {}.".format(player.who()))
+                player.addFunds(bet.currency, bet.amount)
+            elif win_type == 'win':
+                print("You won this round {}.".format(player.who()))
+                player.addFunds(bet.currency, bet.amount)
+                win_amt = bet.amount
+                currency, amount = self._dealer.payout(bet.currency, win_amt)
+                player.addFunds(currency, amount)
+            elif win_type == 'natural':
+                print("You won this round with a natural blackjack {}!"\
+                      .format(player.who()))
+                player.addFunds(bet.currency, bet.amount)
+                win_amt = int(round(bet.amount * 1.5))
+                currency, amount = self._dealer.payout(bet.currency, win_amt)
+                player.addFunds(currency, amount)
+            elif win_type == 'surrender':
+                win_amt == int(bet.amount * 0.5)
+                self._dealer.addFunds(bet.currency, bet.amount)
+                # remove the bet from the pot so the player is not paid later
+                # if dealer busts
+                self._pot[player] = None
+    
+    def resetRound(self):
+        self.clearBets()
+        for player in self._players:
+            discards = player.discardHand()
+            self.discardCards(discards)
+    
+    def checkPlayerExit(self, player, curency):
+        if player.getFunds(curency) == 0:
+            print("Player {} has run out of funds and was ejected from the"
+                " casino!".format(player.who()))
+            self.removePlayer(player)
+        else:
+            choice = makeChoice("Would you like to cash out {}?"\
+                .format(player.who()), ("yes", "no"))
+            if choice == "yes":
+                print("You left the table with {}.".format(player.fundsStr(
+                    curency)))
+                self.removePlayer(player)
+
+    def checkForEndGame(self):
+        curency = self._stakes[0]
+        # check that dealer is not broke
+        # boot players with no funds
+        for player in self._players:
+            if player == self._dealer:
+                if player.getFunds(curency) == 0:
+                    print("The dealer has run out of {}. Game over.".format(
+                        curency.plural))
+                    exit(0)
+            else:
+                self.checkPlayerExit(player, curency)
+        if len(self._players) <= 1:
+            print("No more players at the table. Game Over.")
+            exit(0)
     
     def round(self):
         self.takeStartingBets()
         self.dealToEveryone()
         self.showHands()
-        self.dealOptions()
-        # Todo
-        # self.calcWinners()
-        # payout to winners
-        # clear board/hands
-        # look at End Game scenarios
-        # prompt for another round
+        time.sleep(.5)
+        # dealer wins automatically if they have a natural 21(blackjack)
+        # in this case no cards are dealt
+        if self._dealer.hasNatural():
+            print("Dealer has natural 21(blackjack): {}".format(
+                self._dealer.showCards(omnipotent=True)))
+        else:
+            self.dealOptions()
+        self.calcWinners()
+        self.resetRound()
+        self.checkForEndGame()
     
     def run(self):
         """
@@ -167,9 +289,10 @@ class BlackjackGame(cardgame.Game):
         """
         player = self.makePlayer()
         self.addPlayer(player)
-        print "Game has the following players: {}".format([player.who() for player in self._players])
-        
-        self.round()
+        print("Game has the following players: {}"\
+              .format([player.who() for player in self._players]))
+        while True:
+            self.round()
 
 
 STANDARDDECK = tuple(BlackjackCard(suit, val) 
@@ -208,5 +331,5 @@ if __name__ == "__main__":
         game = BlackjackGame()
         game.run()
     except KeyboardInterrupt:
-        print("Game Over!")
+        print("\nUh Oh! Someone tipped off the fuzz.\nGame Over!")
         exit()

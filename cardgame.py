@@ -45,8 +45,8 @@ class Deck(object):
         
     def isEmpty(self):
         if self._cards:
-            return True
-        return False
+            return False
+        return True
     
     def dealCard(self):
         """ deals a card from the top of the deck """
@@ -64,42 +64,6 @@ class Currency(object):
             self.plural = plural
 
 
-class Bankroll(object):
-    def __init__(self, currency, amount):
-        self._bank = {currency: amount}
-    
-    def add(self, currency, amount):
-        if currency in self._bank:
-            self._bank[currency] += amount
-        else:
-            self._bank[currency] = amount
-    
-    def remove(self, currency, amount):
-        if currency in self._bank:
-            if self._bank[currency] >= amount:
-                self._bank[currency] -= amount
-                return amount
-            else:
-                raise GameError("Insufficient funds")
-        else:
-            raise GameError("Requested currency not in bankroll")
-    
-    def get(self, currency):
-        if currency in self._bank:
-            return self._bank[currency]
-        else:
-            return 0
-    
-    def getPrintable(self, currency):
-        try:
-            if self._bank[currency] == 1:
-                return "{} {}".format(self._bank[currency], currency.kind)
-            else:
-                return "{} {}".format(self._bank[currency], currency.plural)
-        except KeyError:
-            pass
-
-
 class Bet(object):
     def __init__(self, currency, amount, kind='standard'):
         self.currency = currency
@@ -115,10 +79,10 @@ class Bet(object):
 
 
 class Player(object):
-    def __init__(self, bankroll, name):
-        self._bankroll = bankroll
+    def __init__(self, name):
         self._cards = list()
         self._name = name
+        self._bank = dict()
     
     def showCards(self, omnipotent=False):
         if omnipotent:
@@ -144,11 +108,44 @@ class Player(object):
         discards = self._cards
         self._cards = list()
         return discards
+        
+    def addFunds(self, currency, amount):
+        if currency in self._bank:
+            self._bank[currency] += amount
+        else:
+            self._bank[currency] = amount
+    
+    def removeFunds(self, currency, amount):
+        if currency in self._bank:
+            if self._bank[currency] >= amount:
+                self._bank[currency] -= amount
+                return amount
+            else:
+                raise GameError("Insufficient funds")
+        else:
+            raise GameError("Requested currency not in bankroll")
+    
+    def getFunds(self, currency):
+        if not self._bank:
+            return None
+        if currency in self._bank:
+            return self._bank[currency]
+        else:
+            return 0
+    
+    def fundsStr(self, currency):
+        try:
+            if self._bank[currency] == 1:
+                return "{} {}".format(self._bank[currency], currency.kind)
+            else:
+                return "{} {}".format(self._bank[currency], currency.plural)
+        except KeyError:
+            pass
     
     def makeBet(self, currency, amount, kind):
         if amount < 0:
             raise GameError("You can't make a negative bet.")
-        funds = self._bankroll.remove(currency, amount)
+        funds = self.removeFunds(currency, amount)
         return Bet(currency, funds, kind)
 
 
@@ -172,10 +169,11 @@ class Game(object):
             card.visible = False
             self._deck.addCard(card)
     
-    def discardCard(self, card):
-        """ Places card in the discard pile """
-        card.visible = True
-        self._discards.append(card)
+    def discardCards(self, cards):
+        """ Places card(s) in the discard pile """
+        for card in cards:
+            card.visible = True
+            self._discards.append(card)
     
     def showDiscards(self):
         return ", ".join([card.shortStr() for card in self._discards])
@@ -199,7 +197,8 @@ class Game(object):
             self._activePlayer = None
     
     def pullCardFromDeck(self):
-        if not self._deck:
+        if self._deck.isEmpty():
+#            print("no more cards in the deck time to shuffle...")
             if self._discards:
                 self.returnDiscarded()
                 self._deck.shuffleCards()
@@ -219,11 +218,11 @@ class Game(object):
     def addBet(self, bet, player):
         self._pot[player].append(bet)
         
-    def clearBets(self, bet):
+    def clearBets(self):
         self._pot = dict()
         
-    def updateActivePlayerBet(self, newbet):
+    def updatePlayerBet(self, player, newbet):
         try:
-            self._pot[self._activePlayer] = newbet
+            self._pot[player] = newbet
         except KeyError:
             raise("No existing bets to update")
