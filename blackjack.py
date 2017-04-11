@@ -215,7 +215,7 @@ class BlackjackGame(cardgame.Game):
                 currency, amount = self._dealer.payout(bet.currency, win_amt)
                 player.addFunds(currency, amount)
             elif win_type == 'natural':
-                print("You won this round with a natural blackjack {}!"\
+                print("You won this round with a natural blackjack {}!"
                       .format(player.who()))
                 player.addFunds(bet.currency, bet.amount)
                 win_amt = int(round(bet.amount * 1.5))
@@ -289,6 +289,9 @@ class BlackjackGame(cardgame.Game):
         """
         player = self.makePlayer()
         self.addPlayer(player)
+        while makeChoice("Add another player?", ["yes","no"]) == "yes":
+            player = self.makePlayer()
+            self.addPlayer(player)
         print("Game has the following players: {}"\
               .format([player.who() for player in self._players]))
         while True:
